@@ -1,6 +1,7 @@
 // Inference/controller for simulate_python/unitree_mujoco.py; simulation only.
 #include "g1_parkour_policy.h"
 #include "g1_hardware.h"
+#include "g1_gamepad.h"
 #include <unitree/robot/channel/channel_factory.hpp>
 #include <unitree/robot/channel/channel_publisher.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
@@ -35,11 +36,11 @@ public:
         restore_=true;
     }
     ~Keyboard() {if(restore_) tcsetattr(0,TCSANOW,&saved_);}
-    char Read() {
+    char Read(bool eof_is_exit=true) {
         pollfd fd{0,POLLIN,0};int r=poll(&fd,1,0);
         if(r<0 && errno!=EINTR) throw std::runtime_error("Keyboard poll failed");
         if(r<=0) return 0;
-        char key=0;auto n=read(0,&key,1);return n==0?' ':key;
+        char key=0;auto n=read(0,&key,1);return n==0?(eof_is_exit?' ':0):key;
     }
 };
 
@@ -74,8 +75,8 @@ public:
 
 int main(int argc,char** argv) {
     std::signal(SIGINT,Stop); std::signal(SIGTERM,Stop);
-    std::string models=G1_PARKOUR_DEFAULT_MODELS, config=G1_PARKOUR_DEFAULT_CONFIG;
-    int port=17200,domain=1;double reset_seconds=3;bool check=false;
+    std::string models=G1_PARKOUR_DEFAULT_MODELS, config=G1_PARKOUR_DEFAULT_CONFIG, joystick_path;
+    int port=17200,domain=1;double reset_seconds=3;bool check=false,check_joystick=false;
     try {
         for(int i=1;i<argc;++i) {
             std::string arg=argv[i];
@@ -84,12 +85,25 @@ int main(int argc,char** argv) {
             else if(arg=="--port") port=std::stoi(value());else if(arg=="--domain") domain=std::stoi(value());
             else if(arg=="--reset-seconds") reset_seconds=std::stod(value());
             else if(arg=="--check-policy") check=true;
+            else if(arg=="--joystick") joystick_path=value();
+            else if(arg=="--check-joystick") check_joystick=true;
             else if(arg=="--help") {
-                std::cout<<"g1_parkour [--model-dir DIR] [--config JSON] [--domain 1] [--port 17200] [--reset-seconds 3] [--check-policy]\nSimulation only, DDS interface lo. Keys: 9 -> p -> r; w/s forward, q/e yaw, x stop velocity, Space exit.\n";return 0;
+                std::cout<<"g1_parkour [--model-dir DIR] [--config JSON] [--domain 1] [--port 17200] [--reset-seconds 3] [--check-policy] [--joystick /dev/input/js0] [--check-joystick]\nSimulation only, DDS interface lo. Keys: 9 -> p -> r; w/s forward, q/e yaw, x stop velocity, Space exit.\nF710 X mode: Start enable, A reset, Y run, hold RB + left Y/right X to move, X zero, B exit.\n";return 0;
             } else throw std::runtime_error("Unknown argument: "+arg);
         }
         if(domain<=0 || port<1024 || port>65535 || !std::isfinite(reset_seconds) || reset_seconds<=0)
             throw std::runtime_error("Use positive simulation domain, valid UDP port and positive reset duration");
+        if(check && check_joystick) throw std::runtime_error("Choose --check-policy or --check-joystick");
+        if(check_joystick && joystick_path.empty()) joystick_path="/dev/input/js0";
+        std::unique_ptr<g1_gamepad::Device> gamepad;
+        if(!joystick_path.empty() && !check) {
+            gamepad=std::make_unique<g1_gamepad::Device>(joystick_path);
+            std::cout<<"Gamepad: "<<gamepad->Description()<<" ("<<joystick_path<<")\n"<<std::flush;
+        }
+        if(check_joystick) {
+            g1_gamepad::CheckInput(*gamepad,stopped);
+            return 0;
+        }
         g1_parkour::Policy policy(models,config);
         if(check) {
             g1_parkour::Observation obs;obs.q=policy.neutral;obs.gravity={0,0,-1};obs.depth.fill(2.5f);
@@ -148,7 +162,13 @@ int main(int argc,char** argv) {
                 if(active && snapshot.mode_machine()!=command.mode_machine()) throw std::runtime_error("DDS robot mode changed; stopping");
                 if(!ready && now-waiting_since>std::chrono::seconds(10)) throw std::runtime_error("No synchronized simulator input; check PARKOUR_OBSERVATIONS, domain and UDP port");
                 if(ready) waiting_since=now;
-                const char key=keyboard.Read();if(key==' ') break;
+                char key=keyboard.Read(!gamepad);
+                if(gamepad) {
+                    gamepad->Poll();
+                    const char action=gamepad->state.Action();
+                    if(action==' ' || (key==0 && action)) key=action;
+                }
+                if(key==' ') break;
                 if(key=='9' && !active && ready) {powered=true;std::cout<<"Output enabled; press p to reset.\n"<<std::flush;}
                 if((key=='p'||key=='P') && powered && ready) {
                     for(int i=0;i<29;++i) start[policy.ids[i]]=policy.sign[i]*obs.q[i];
@@ -158,7 +178,10 @@ int main(int argc,char** argv) {
                 }
                 if((key=='r'||key=='R') && holding && ready && !running) {
                     bool near=true;for(int i=0;i<29;++i) if(std::abs(obs.q[i]-policy.neutral[i])>.35) near=false;
-                    if(near) {policy.Reset();running=true;fresh=true;velocity.fill(0);std::cout<<"Parkour policy ON.\n"<<std::flush;}
+                    if(gamepad && (!gamepad->state.Ready() || !gamepad->state.Centered() || gamepad->state.MovingEnabled())) {
+                        std::cout<<"Center sticks and release RB before policy entry.\n"<<std::flush;
+                    }
+                    else if(near) {policy.Reset();running=true;fresh=true;velocity.fill(0);if(gamepad) gamepad->state.BeginPolicy();std::cout<<"Parkour policy ON.\n"<<std::flush;}
                     else std::cout<<"Joints not near training pose; keep band enabled and reset.\n"<<std::flush;
                 }
                 if(running) {
@@ -166,6 +189,9 @@ int main(int argc,char** argv) {
                         case 'w':velocity[0]+=.1f;break;case 's':velocity[0]-=.1f;break;
                         case 'q':velocity[2]+=.1f;break;case 'e':velocity[2]-=.1f;break;
                         case 'x':velocity.fill(0);break;
+                    }
+                    if(gamepad) {
+                        velocity=gamepad->state.ControlVelocity(key);
                     }
                     velocity[0]=std::clamp(velocity[0],0.f,1.f);
                     velocity[1]=0;velocity[2]=std::clamp(velocity[2],-1.f,1.f);

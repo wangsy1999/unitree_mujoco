@@ -21,6 +21,7 @@
 #include <memory>
 #include <net/if.h>
 #include "g1_hardware.h"
+#include "g1_gamepad.h"
 #include <unitree/robot/b2/motion_switcher/motion_switcher_client.hpp>
 
 #include <unitree/idl/hg/LowCmd_.hpp>
@@ -59,7 +60,7 @@ public:
     ~Keyboard() {
         if (restore_) tcsetattr(STDIN_FILENO, TCSANOW, &original_);
     }
-    char Read() {
+    char Read(bool eof_is_exit=true) {
         pollfd input{STDIN_FILENO, POLLIN, 0};
         const int ready = poll(&input, 1, 0);
         if (ready < 0) {
@@ -71,7 +72,7 @@ public:
             throw std::runtime_error("Keyboard input closed");
         char key = 0;
         const auto count = read(STDIN_FILENO, &key, 1);
-        if (count == 0) return ' ';  // closed pipe/terminal
+        if (count == 0) return eof_is_exit ? ' ' : 0;
         if (count < 0 && errno != EINTR && errno != EAGAIN)
             throw std::runtime_error("Cannot read keyboard input");
         return count > 0 ? key : 0;
@@ -124,11 +125,12 @@ class JointReset {
 public:
     explicit JointReset(const ResetConfig& config, const g1_hardware::Limits* hardware, bool read_only
 #ifdef G1_WITH_POLICY
-        , g1_policy::Policy* policy
+        , g1_policy::Policy* policy, g1_gamepad::Device* gamepad
 #endif
     ) : config_(config), hardware_(hardware), read_only_(read_only), publisher_("rt/lowcmd"), target_publisher_("rt/g1/reset_target"), enable_publisher_("rt/g1/reset_enable"), subscriber_("rt/lowstate") {
 #ifdef G1_WITH_POLICY
         policy_ = policy;
+        gamepad_ = gamepad;
 #endif
         if (!read_only_) {
             publisher_.InitChannel();
@@ -227,7 +229,12 @@ public:
             }
             char key = 0;
             try {
-                key = keyboard.Read();
+                key = keyboard.Read(!gamepad_);
+                if(gamepad_) {
+                    gamepad_->Poll();
+                    const char action=gamepad_->state.Action();
+                    if(action==' ' || (key==0 && action)) key=action;
+                }
             } catch (const std::exception& error) {
                 std::cerr << error.what() << '\n';
                 result = 1;
@@ -276,10 +283,13 @@ public:
                     if (std::abs(state.motor_state()[i].q() - neutral[i]) > 0.35f) pose_ready = false;
                 if (!output_enabled || !active || !holding || !pose_ready) {
                     std::cout << "Policy requires power-on and completed reset near the training pose. Follow 9 -> P -> R; wait for reset completion.\n";
+                } else if(gamepad_ && (!gamepad_->state.Ready() || !gamepad_->state.Centered() || gamepad_->state.MovingEnabled())) {
+                    std::cout<<"Center sticks and release RB before policy entry.\n";
                 } else {
                     policy_->Reset();
                     velocity.fill(0);
                     policy_active = true;
+                    if(gamepad_) gamepad_->state.BeginPolicy();
                     next_policy = Clock::now();
                     std::cout << "Locomotion policy ON; velocity = [0, 0, 0]. P: reset, Space / Ctrl+C: exit.\n";
                 }
@@ -296,6 +306,7 @@ public:
                     case 'x': case 'X': velocity.fill(0); break;
                     default: changed = false;
                 }
+                if(gamepad_) velocity=policy_->GamepadVelocity(gamepad_->state.ControlVelocity(key));
                 policy_->ClampVelocity(velocity);
                 if (changed) std::cout << "Velocity: " << velocity[0] << ", " << velocity[1] << ", " << velocity[2] << '\n';
                 if (Clock::now() >= next_policy) {
@@ -388,6 +399,7 @@ public:
     }
 
 private:
+    g1_gamepad::Device* gamepad_ = nullptr;
 #ifdef G1_WITH_POLICY
     g1_policy::Policy* policy_ = nullptr;
 #endif
@@ -450,11 +462,38 @@ private:
 };
 
 int main(int argc, char** argv) {
+#ifdef G1_WITH_POLICY
+    std::string joystick_path;
+    bool check_joystick=false;
+    std::vector<char*> positional{argv[0]};
+    for(int i=1;i<argc;++i) {
+        const std::string argument=argv[i];
+        if(argument=="--joystick") {
+            if(i+1==argc) {std::cerr<<"--joystick requires a device path\n";return 1;}
+            joystick_path=argv[++i];
+        } else if(argument=="--check-joystick") check_joystick=true;
+        else positional.push_back(argv[i]);
+    }
+    argc=static_cast<int>(positional.size());
+    positional.push_back(nullptr);argv=positional.data();
+#endif
     const bool hardware = argc > 1 && (std::string(argv[1]) == "--hardware" || std::string(argv[1]) == "--hardware-read-only");
     const bool read_only = hardware && std::string(argv[1]) == "--hardware-read-only";
     const std::string program = argv[0];
     if (hardware) { --argc; ++argv; }
 #ifdef G1_WITH_POLICY
+    if(hardware && (!joystick_path.empty() || check_joystick)) {
+        std::cerr<<"Gamepad input is supported in MuJoCo simulation mode only.\n";return 1;
+    }
+    if(check_joystick) {
+        try {
+            if(argc!=1) throw std::runtime_error("Use --check-joystick [--joystick DEVICE] without control arguments");
+            g1_gamepad::Device gamepad(joystick_path.empty()?"/dev/input/js0":joystick_path,true);
+            std::cout<<"Gamepad: "<<gamepad.Description()<<'\n';
+            std::signal(SIGINT,Stop);std::signal(SIGTERM,Stop);
+            g1_gamepad::CheckInput(gamepad,stop_requested);return 0;
+        } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+    }
     if (argc > 1 && std::string(argv[1]) == "--check-policy") {
         try {
             if (argc > 4) throw std::runtime_error("Usage: --check-policy [model.onnx] [deploy.yaml]");
@@ -481,11 +520,20 @@ int main(int argc, char** argv) {
                   << "Default: MuJoCo, positive domain. Hardware: prepend --hardware or --hardware-read-only, explicitly set interface and domain 0.\n";
 #ifdef G1_WITH_POLICY
         std::cout << "Optional argument after locomotion.yaml: [model.onnx]\n"
-                  << "Offline inference: --check-policy [model.onnx] [deploy.yaml]\n";
+                  << "Offline inference: --check-policy [model.onnx] [deploy.yaml]\n"
+                  << "Simulation F710: --joystick /dev/input/js0; input-only check: --check-joystick [--joystick DEVICE]\n"
+                  << "Start enable, A reset, Y run; hold RB + left stick XY/right stick X to move; X zero, B exit.\n";
 #endif
         return argc > max_args ? 1 : 0;
     }
     try {
+#ifdef G1_WITH_POLICY
+        std::unique_ptr<g1_gamepad::Device> gamepad;
+        if(!joystick_path.empty()) {
+            gamepad=std::make_unique<g1_gamepad::Device>(joystick_path,true);
+            std::cout<<"Gamepad: "<<gamepad->Description()<<'\n';
+        }
+#endif
         std::size_t consumed = 0;
         const std::string duration_text = argc > 1 ? argv[1] : "3";
         const double duration = std::stod(duration_text, &consumed);
@@ -521,7 +569,7 @@ int main(int argc, char** argv) {
         unitree::robot::ChannelFactory::Instance()->Init(domain, argc > 2 ? argv[2] : "lo");
         JointReset controller(config, hardware_limits.get(), read_only
 #ifdef G1_WITH_POLICY
-            , policy.get()
+            , policy.get(), gamepad.get()
 #endif
         );
         return controller.Run(duration);

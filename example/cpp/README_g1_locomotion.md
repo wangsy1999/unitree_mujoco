@@ -85,6 +85,44 @@ python simulate_python/joint_monitor.py
 目标话题继续为 `rt/g1/reset_target`，使能状态为 `rt/g1/reset_enable`，
 因此复位和策略目标都能在现有网页查看。
 
+## Logitech F710 手柄
+
+Python仿真启动后，可使用F710替代键盘速度输入：
+
+```bash
+# 只读输入检查，不初始化DDS、不下发命令
+./example/cpp/build/g1_locomotion --joystick /dev/input/js0 --check-joystick
+# 运行DreamWaQ
+./example/cpp/build/g1_locomotion --joystick /dev/input/js0
+# 保留原位置参数，手柄选项可放在前面或后面
+./example/cpp/build/g1_locomotion 3 lo 1 example/cpp/g1_locomotion.yaml policy.onnx --joystick /dev/input/js0
+```
+
+手柄切到XInput，MODE灯熄灭；设备连接与轴值排查见 [F710说明](README_f710.md)。
+C++直接读取手柄，Python的 `USE_JOYSTICK` 保持0。
+
+| F710输入 | DreamWaQ功能 |
+| --- | --- |
+| Start | 使能（9） |
+| A | 平滑复位（p），先按Start |
+| Y | 复位完成后进入策略（r），三个摇杆通道须居中、RB须松开 |
+| 按住RB + 左杆前后 | 前进/后退，默认 `[-0.6,1.0] m/s` |
+| 按住RB + 左杆左右 | 横向移动，默认 `[-0.5,0.5] m/s`，左为正 |
+| 按住RB + 右杆左右 | 转向，默认 `[-1.57,1.57] rad/s`，左为正 |
+| 松开RB | 速度归零，继续零命令策略 |
+| X | 清零并锁定摇杆运动；松开RB且摇杆居中后可重新按RB运动 |
+| B | 清零输出并退出 |
+
+流程为 `Start → A → 等待Holding default pose → Y`。
+虚拟挂带仍由MuJoCo窗口7/8/9控制。
+速度范围从加载的YAML读取；摇杆死区为12%，正负方向分别缩放到配置上下界。
+启用手柄后速度以摇杆为准，键盘仍可使能、复位、进入策略、清零和退出。
+不带 `--joystick` 时保持原键盘行为。
+手柄输入当前仅接入MuJoCo模式，不能与 `--hardware` 或 `--hardware-read-only` 合用。
+
+手柄映射/门控和速度缩放已通过模拟输入测试，原有MuJoCo DDS链路有独立冒烟检查。
+当前开发环境没有 `/dev/input`，实体手柄需在连接接收器的机器执行只读检查。
+
 ## 模型接口
 
 当前模型来自：

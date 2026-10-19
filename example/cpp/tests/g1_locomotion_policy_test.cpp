@@ -11,6 +11,12 @@ int main(int argc, char** argv) {
     try {
         if (argc != 3) throw std::runtime_error("Expected model and deploy config paths");
         g1_policy::Policy policy(argv[1], argv[2]);
+        auto positive=policy.GamepadVelocity({1,1,1});
+        Near(positive[0],1);Near(positive[1],.5f);Near(positive[2],1.57f);
+        auto negative=policy.GamepadVelocity({-1,-1,-1});
+        Near(negative[0],-.6f);Near(negative[1],-.5f);Near(negative[2],-1.57f);
+        auto half=policy.GamepadVelocity({-.5f,.5f,.5f});
+        Near(half[0],-.3f);Near(half[1],.25f);Near(half[2],.785f);
         const std::array<int, 29> ids{0,6,12,1,7,13,2,8,14,3,9,15,22,4,10,16,23,5,11,17,24,18,25,19,26,20,27,21,28};
         g1_policy::State state;
         state.q = policy.DefaultDds();

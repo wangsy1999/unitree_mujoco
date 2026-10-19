@@ -157,6 +157,15 @@ public:
     void ClampVelocity(std::array<float, 3>& command) const {
         for (int i = 0; i < 3; ++i) command[i] = std::clamp(command[i], limits_[i][0], limits_[i][1]);
     }
+    std::array<float,3> GamepadVelocity(const std::array<float,3>& normalized) const {
+        std::array<float,3> result{};
+        for(int i=0;i<3;++i) {
+            if(!std::isfinite(normalized[i])) throw std::runtime_error("Invalid gamepad velocity");
+            const float value=std::clamp(normalized[i],-1.f,1.f);
+            result[i]=value*(value<0 ? -limits_[i][0] : limits_[i][1]);
+        }
+        return result;
+    }
 
     // Term-major history, oldest -> newest within each term (Isaac Lab default).
     std::array<float, kObservation> Observe(const State& state, const std::array<float, 3>& velocity) {

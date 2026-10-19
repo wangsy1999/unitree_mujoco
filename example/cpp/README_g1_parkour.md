@@ -64,6 +64,8 @@ MuJoCo、NumPy、pygame 和 unitree_sdk2py；深度用 CPU 射线采集。
 
 ## 3. 启动 C++ 推理控制器
 
+Logitech F710输入接入见 [F710使用说明](README_f710.md)，使用 `--joystick /dev/input/js0` 启用。
+
 关闭之前的复位/locomotion 控制程序，在第二个终端从仓库根目录运行：
 
 ```bash
