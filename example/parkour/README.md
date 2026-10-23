@@ -1,5 +1,9 @@
 # G1 Parkour 双网络推理
 
+独立 rollout 已支持 `--backend mujoco|newton`，Newton 可指定
+`--device cuda:0` 或 `--device cpu`。DDS 主仿真也使用同一后端接口，
+安装与启动见 [多后端说明](../../simulate_python/README_backends.md)。
+
 当前使用方式是 **Python启动现有Unitree MuJoCo，C++推理并通过DDS控制**。
 编译、启动和按键操作见 [Python仿真+C++推理](../cpp/README_g1_parkour.md)。
 下方Python推理和独立rollout仅作离线参考及诊断。

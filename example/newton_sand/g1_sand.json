@@ -1,0 +1,17 @@
+{
+  "scene": "unitree_robots/g1/scene_29dof_sand.xml",
+  "robot_config": "example/parkour/g1.json",
+  "bed_lower": [-0.6, -0.4, -0.12],
+  "bed_upper": [0.6, 0.4, 0.0],
+  "voxel_size": 0.04,
+  "particles_per_cell": 2,
+  "density": 1600.0,
+  "friction": 0.65,
+  "young_modulus": 1000000.0,
+  "poisson_ratio": 0.3,
+  "max_iterations": 40,
+  "frame_dt": 0.01,
+  "rigid_substeps": 5,
+  "spawn_height": 0.81,
+  "settle_seconds": 0.1
+}

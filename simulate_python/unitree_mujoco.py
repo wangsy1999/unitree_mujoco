@@ -1,4 +1,5 @@
 import time
+import argparse
 import mujoco
 import mujoco.viewer
 from threading import Thread
@@ -10,6 +11,13 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py_bridge import UnitreeSdk2Bridge, ElasticBand
 
 import config
+from physics_backend import create_backend
+
+parser = argparse.ArgumentParser(description='Unitree DDS simulator with selectable physics')
+parser.add_argument('--backend', choices=['mujoco', 'newton'],
+                    default=getattr(config, 'PHYSICS_BACKEND', 'mujoco'))
+parser.add_argument('--device', default=getattr(config, 'NEWTON_DEVICE', 'cuda:0'))
+args = parser.parse_args()
 
 
 locker = threading.Lock()
@@ -17,6 +25,29 @@ locker = threading.Lock()
 mj_model = mujoco.MjModel.from_xml_path(str((Path(__file__).parent / config.ROBOT_SCENE).resolve()))
 mj_data = mujoco.MjData(mj_model)
 
+
+mj_model.opt.timestep = config.SIMULATE_DT
+physics = create_backend(args.backend, mj_model, mj_data,
+                         Path(__file__).parent / config.ROBOT_SCENE, args.device)
+print(f'Physics backend: {physics.name}')
+num_motor_ = mj_model.nu
+dim_motor_sensor_ = 3 * num_motor_
+
+parkour_observations = None
+if getattr(config, "PARKOUR_OBSERVATIONS", False):
+    if config.ROBOT != "g1" or mj_model.nu != 29:
+        raise ValueError("Parkour observations require G1 29DOF")
+    from parkour_observation import ParkourObservationPublisher
+    parkour_observations = ParkourObservationPublisher(
+        mj_model, mj_data, config.PARKOUR_OBSERVATION_PORT)
+    print(f"Parkour observations -> 127.0.0.1:{config.PARKOUR_OBSERVATION_PORT}; inference runs in C++")
+
+try:
+    physics.prepare()
+except Exception:
+    if parkour_observations is not None:
+        parkour_observations.close()
+    raise
 
 if config.ENABLE_ELASTIC_BAND:
     elastic_band = ElasticBand()
@@ -29,19 +60,6 @@ if config.ENABLE_ELASTIC_BAND:
     )
 else:
     viewer = mujoco.viewer.launch_passive(mj_model, mj_data)
-
-mj_model.opt.timestep = config.SIMULATE_DT
-num_motor_ = mj_model.nu
-dim_motor_sensor_ = 3 * num_motor_
-
-parkour_observations = None
-if getattr(config, "PARKOUR_OBSERVATIONS", False):
-    if config.ROBOT != "g1" or mj_model.nu != 29:
-        raise ValueError("Parkour observations require G1 29DOF")
-    from parkour_observation import ParkourObservationPublisher
-    parkour_observations = ParkourObservationPublisher(
-        mj_model, mj_data, config.PARKOUR_OBSERVATION_PORT)
-    print(f"Parkour observations -> 127.0.0.1:{config.PARKOUR_OBSERVATION_PORT}; inference runs in C++")
 
 time.sleep(0.2)
 
@@ -77,7 +95,7 @@ def SimulationThread():
                 adapter = parkour_observations.adapter
                 ids = adapter.actuators
                 mj_data.ctrl[ids] = np.clip(mj_data.ctrl[ids], -adapter.limits, adapter.limits)
-            mujoco.mj_step(mj_model, mj_data)
+            physics.step()
 
         time_until_next_step = mj_model.opt.timestep - (
             time.perf_counter() - step_start

@@ -1,0 +1,6 @@
+# Newton 1.7 uses MuJoCo 3.15, matching the unitree conda environment.
+newton[sim]==1.7.0
+# Supported baseline, also suitable for drivers older than Warp 1.18 requires.
+warp-lang==1.17.0
+trimesh>=4.6.8
+scipy

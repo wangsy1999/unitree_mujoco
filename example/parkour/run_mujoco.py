@@ -3,11 +3,14 @@ import argparse
 from contextlib import nullcontext
 from pathlib import Path
 import time
+import sys
 import numpy as np
 import mujoco
 from policy import ParkourPolicy, DEFAULT_MODELS
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'simulate_python'))
+from physics_backend import create_backend
 
 
 from mujoco_adapter import MujocoAdapter
@@ -15,6 +18,8 @@ from mujoco_adapter import MujocoAdapter
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--backend', choices=['mujoco', 'newton'], default='mujoco')
+    parser.add_argument('--device', default='cuda:0', help='Newton device: cuda:0 or cpu')
     parser.add_argument('--model-dir', type=Path, default=DEFAULT_MODELS)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--scene', type=Path, default=ROOT / 'unitree_robots/g1/scene_29dof.xml')
@@ -46,6 +51,7 @@ def main():
     data.qpos[3:7] = [1, 0, 0, 0]
     mujoco.mj_forward(model, data)
     initial_root = data.qpos[:7].copy()
+    physics = create_backend(args.backend, model, data, args.scene, args.device)
     min_height = data.xpos[adapter.torso,2]
     if args.headless:
         context = nullcontext(None)
@@ -60,7 +66,7 @@ def main():
                 if steps % decimation == 0:
                     adapter.target = policy.step(*adapter.observation(command))
                 adapter.control()
-                mujoco.mj_step(model, data)
+                physics.step()
                 if args.fixed_base:
                     data.qpos[:7] = initial_root
                     data.qvel[:6] = 0
@@ -76,7 +82,7 @@ def main():
                 steps += 1
     finally:
         data.ctrl[:] = 0
-    print(f'MuJoCo OK: {data.time:.3f}s, {steps} steps, min torso height={min_height:.3f}m, pelvis xy={data.qpos[:2]}')
+    print(f'{physics.name} OK: {data.time:.3f}s, {steps} steps, min torso height={min_height:.3f}m, pelvis xy={data.qpos[:2]}')
 
 
 if __name__ == '__main__':

@@ -1,4 +1,6 @@
 ROBOT = "g1" # Robot name, "go2", "b2", "b2w", "h1", "go2w", "g1"
+PHYSICS_BACKEND = "mujoco" # "mujoco" or "newton"; CLI --backend overrides
+NEWTON_DEVICE = "cuda:0" # "cpu" selects Newton's reference MuJoCo CPU solver
 ROBOT_SCENE = "../unitree_robots/g1/scene_29dof.xml" # G1 29DOF scene
 DOMAIN_ID = 1 # Domain id
 INTERFACE = "lo" # Interface 

@@ -482,8 +482,11 @@ int main(int argc, char** argv) {
     const std::string program = argv[0];
     if (hardware) { --argc; ++argv; }
 #ifdef G1_WITH_POLICY
-    if(hardware && (!joystick_path.empty() || check_joystick)) {
-        std::cerr<<"Gamepad input is supported in MuJoCo simulation mode only.\n";return 1;
+    if(hardware && check_joystick) {
+        std::cerr<<"Use --check-joystick without --hardware; input diagnostics never connect to DDS.\n";return 1;
+    }
+    if(read_only && !joystick_path.empty()) {
+        std::cerr<<"Hardware read-only check does not use a gamepad; omit --joystick.\n";return 1;
     }
     if(check_joystick) {
         try {
@@ -521,7 +524,7 @@ int main(int argc, char** argv) {
 #ifdef G1_WITH_POLICY
         std::cout << "Optional argument after locomotion.yaml: [model.onnx]\n"
                   << "Offline inference: --check-policy [model.onnx] [deploy.yaml]\n"
-                  << "Simulation F710: --joystick /dev/input/js0; input-only check: --check-joystick [--joystick DEVICE]\n"
+                  << "F710: --joystick /dev/input/js0; input-only check: --check-joystick [--joystick DEVICE]\n"
                   << "Start enable, A reset, Y run; hold RB + left stick XY/right stick X to move; X zero, B exit.\n";
 #endif
         return argc > max_args ? 1 : 0;

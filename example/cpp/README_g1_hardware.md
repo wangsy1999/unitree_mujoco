@@ -1,4 +1,7 @@
-# G1 29DOF 解锁腰部：机载部署入口
+# G1 29DOF DreamWaQ：机载部署入口
+
+完整的机载原生编译、独立源码包和可移动安装包见
+[机载部署 README](../../deploy/g1/README.md)。该入口无需MuJoCo或Python运行时。
 
 代码按官方 G1 SDK 示例接入实机通信，尚未在实机验收。
 仿真仍使用正数 DDS domain；只有显式传入 `--hardware` 或
@@ -68,6 +71,21 @@ ctest --test-dir example/cpp/build --output-on-failure
   遥控 A 是本项目的软件阻尼停止映射，依据官方字节布局解析，**不是对固件急停按键的声明**。
 - 首次进入复位后 `9` 锁定，需重启程序才能重新接管。
 
+F710可插在开发计算机上直接读取：
+
+```bash
+# 独立输入检查，不初始化DDS
+./example/cpp/build/g1_locomotion --check-joystick --joystick /dev/input/js0
+# 已核对状态后运行，仍需显式接管
+./example/cpp/build/g1_locomotion --hardware 3 "$ROBOT_IFACE" 0 \
+  example/cpp/g1_locomotion.yaml policy.onnx --joystick /dev/input/js0
+```
+
+Start接管、A复位、Y启动策略；按住RB才接受摇杆，松开RB速度归零。
+B停止并进入与键盘退出相同的阻尼路径。F710由Linux设备直接读取，
+与LowState里的机器人原配遥控器A停止请求是独立来源。
+输入设备读取失败或USB拔出会触发停止，但没有无线链路心跳。
+
 这里的“上电”是软件接管及命令输出使能，不操作机器人电源。
 程序不自动恢复之前的官方运动模式，退出后的恢复按该机器人官方流程处理。
 
@@ -79,7 +97,7 @@ ctest --test-dir example/cpp/build --output-on-failure
 - 检查全部 29 个关节的电机状态码、温度、位置、速度，以及 IMU 四元数和角速度。
 - 默认状态超时 100 ms、倾角上限 1 rad、温度阈值 70°C；这些是项目初始设置，
   **不是官方推荐阈值或安全认证值**。任何状态验证失败会锁定故障，不能靠后续好帧自动恢复。
-- 关节目标在 WalkNet1 处理后再次经过逐关节位置边界、0.01 rad 边界余量和目标变化率限制。
+- 关节目标在 DreamWaQ 处理后再次经过逐关节位置边界、0.01 rad 边界余量和目标变化率限制。
   默认目标变化率上限 10 rad/s，并受 URDF velocity 限制。
 - 用当前 q/dq 和 PD 增益估计指令力矩，超过 URDF effort 时停止。
   该估计不等于电机驱动层的硬件力矩限幅，也未建立 PR/AB 耦合电机力矩模型。
@@ -90,7 +108,7 @@ ctest --test-dir example/cpp/build --output-on-failure
   网络失联时需依赖已验证的控制板保护和独立停止手段。
 
 逐关节边界来自官方 rev_1_0 URDF，使用前必须与实际硬件修订版核对。
-PD、模型和观测历史仍按当前 WalkNet1 配置，不能因接口相同就认为已经完成
+PD、模型和观测历史仍按当前 DreamWaQ 配置，不能因接口相同就认为已经完成
 sim2real。实机策略使用 LowState 主 IMU（官方示例标为 pelvis），模型训练时的
 机体系、传感器位置及关节顺序需与此相符。没有增加未经确认的 IMU 固定旋转。
 
