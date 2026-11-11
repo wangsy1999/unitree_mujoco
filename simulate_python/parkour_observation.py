@@ -3,13 +3,9 @@ from pathlib import Path
 import json
 import socket
 import struct
-import sys
 import threading
-from types import SimpleNamespace
 import numpy as np
 
-PARKOUR = Path(__file__).resolve().parents[1] / 'example' / 'parkour'
-sys.path.insert(0, str(PARKOUR))
 from mujoco_adapter import MujocoAdapter
 
 
@@ -24,12 +20,9 @@ class ParkourObservationPublisher:
     def __init__(self, model, data, port=17200, config_path=None):
         if not 1024 <= port <= 65535:
             raise ValueError('parkour observation port must be 1024..65535')
-        cfg = json.loads(Path(config_path or PARKOUR / 'g1.json').read_text())
-        params = SimpleNamespace(config=cfg, joint_names=cfg['joint_names'],
-                                 default=np.array(cfg['default_joint_pos']),
-                                 effort=np.array(cfg['effort_limit']))
-        self.adapter = MujocoAdapter(model, data, params, configure_dynamics=False)
-        self.signature = joint_signature(params.joint_names, cfg['joint_sign'])
+        cfg = json.loads(Path(config_path or Path(__file__).with_name('g1.json')).read_text())
+        self.adapter = MujocoAdapter(model, data, cfg)
+        self.signature = joint_signature(cfg['joint_names'], cfg['joint_sign'])
         self.data = data
         self.period = cfg['step_dt']
         self.next_time = -1.
@@ -50,7 +43,7 @@ class ParkourObservationPublisher:
         if now + 1e-9 < self.next_time:
             return
         self.next_time = now + self.period
-        q, dq, omega, gravity, _, depth = self.adapter.observation(np.zeros(3))
+        q, dq, omega, gravity, depth = self.adapter.observation()
         with self.preview_lock:
             self.latest_depth = depth.copy()
             self.latest_depth_time = now

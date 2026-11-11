@@ -1,11 +1,5 @@
 
 # 介绍
-## G1 Parkour 推理
-
-使用现有 Python MuJoCo 仿真和 C++ ONNX Runtime 运行 G1 Parkour 双网络策略，
-包含 DDS 控制、腰部坐标转换和深度相机预览。
-编译、启动、按键及验证方法见 [G1 Parkour 接入说明](example/cpp/README_g1_parkour.md)。
-
 ## Unitree mujoco
 `unitree_mujoco` 是基于 `Unitree sdk2` 和 `mujoco` 开发的仿真器。用户使用 `Unitree_sdk2`、 `unitree_ros2` 和 `unitree_sdk2_python` 开发的控制程序可以方便地接入该仿真器，实现仿真到实物的开发流程。仓库别基于 c++ 和 python 实现了两个版本的仿真器， 其结构大致如下图所示:
 
@@ -16,7 +10,6 @@
 - `simulate_python`: 基于 unitree_sdk2py 和 mujoco (python) 实现的仿真器
 - `unitree_robots`: unitree_sdk2 支持的机器人 mjcf 描述文件
 - `terrain_tool`: 仿真场景地形生成工具
-- `example`: 例程
 
 ## 支持的 Unitree sdk2 消息：
 **当前版本仅支持底层开发，主要用于控制器的 sim to real 验证**
@@ -263,77 +256,3 @@ if js_type == "xbox":
 ## 2. 地形生成工具
 我们提供了一个在 mujoco 仿真器中参数化创建简单地形的工具，支持添加楼梯、杂乱地面、高程图等地形。程序位于 `terrain_tool` 文件夹中。具体的使用方法见 `terrain_tool` 文件夹下的 readme 文件。
 ![](./doc/terrain.png)
-
-## 3. sim to real
-`example` 文件夹下提供了使用不同接口实现 Go2 机器人站起再趴下的简单例子。这些例子简演示了如何使用 Unitree 提供的接口实现仿真到实物的实现。下面是每个文件夹名称的解释：
-- `cpp`: 基于 `C++`, 使用 `unitree_sdk2` 接口
-- `python`: 基于 `python`，使用 `unitree_sdk2_python` 接口
-- `ros2`: 基于`ros2`，使用 `unitree_ros2` 接口
-
-### unitree_sdk2 
-1. 编译运行
-```bash
-cd example/cpp
-mkdir build && cd build
-cmake ..
-make -j4
-```
-运行：
-```bash
-./stand_go2 # 控制仿真中的机器人 (需确保 Go2 仿真场景已经加载)
-./stand_go2 enp3s0 # 控制机器人实物，其中 enp3s0 为机器人所连接的网卡名称
-```
-
-2. sim to real
-```C++
-if (argc < 2)
-{   
-    // 如果没有输入网卡，使用仿真的 domian id 和 网卡(本地)
-    ChannelFactory::Instance()->Init(1, "lo");
-}
-else
-{   
-    // 否则使用指定的网卡
-    ChannelFactory::Instance()->Init(0, argv[1]);
-}
-```
-
-### unitree_sdk2_python
-1. 运行：
-```bash
-python3 ./stand_go2.py # 控制仿真中的机器人 (需确保 Go2 仿真场景已经加载)
-python3 ./stand_go2.py enp3s0 # 控制机器人实物，其中 enp3s0 为机器人所连接的网卡名称
-```
-2. sim to real
-
-```python
-if len(sys.argv) <2:
-    // 如果没有输入网卡，使用仿真的 domian id 和 网卡(本地)
-    ChannelFactoryInitialize(1, "lo")
-else:
-    // 否则使用指定的网卡
-    ChannelFactoryInitialize(0, sys.argv[1])
-```
-### unitree_ros2
-
-1. 编译安装
-首先确保已经正确配置好 unitree_ros2 环境，见 [unitree_ros2](https://github.com/unitreerobotics/unitree_ros2)。
-```bash
-source ~/unitree_ros2/setup.sh
-cd example/ros2
-colcon build
-```
-
-2. 运行仿真
-```bash
-source ~/unitree_ros2/setup_local.sh # 使用本地网卡
-export ROS_DOMAIN_ID=1 # 修改domain id 与仿真一致
-./install/stand_go2/bin/stand_go2 # 运行
-```
-
-3. 运行实物
-```bash
-source ~/unitree_ros2/setup.sh # 使用机器人连接的网卡
-export ROS_DOMAIN_ID=0 # 使用默认的 domain id 
-./install/stand_go2/bin/stand_go2 # 运行
-```

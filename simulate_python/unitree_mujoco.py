@@ -41,7 +41,7 @@ if getattr(config, "PARKOUR_OBSERVATIONS", False):
     from parkour_observation import ParkourObservationPublisher
     parkour_observations = ParkourObservationPublisher(
         mj_model, mj_data, config.PARKOUR_OBSERVATION_PORT)
-    print(f"Parkour observations -> 127.0.0.1:{config.PARKOUR_OBSERVATION_PORT}; inference runs in C++")
+    print(f"Parkour observations -> 127.0.0.1:{config.PARKOUR_OBSERVATION_PORT}; external controller observations")
 
 time.sleep(0.2)
 
@@ -73,7 +73,7 @@ def SimulationThread():
                 parkour_observations.update()
             unitree.UpdateMotorControl()
             if parkour_observations is not None:
-                # Apply the tighter of training and model torque limits, in motor order.
+                # Apply the tighter of configured and model torque limits, in motor order.
                 adapter = parkour_observations.adapter
                 ids = adapter.actuators
                 mj_data.ctrl[ids] = np.clip(mj_data.ctrl[ids], -adapter.limits, adapter.limits)
